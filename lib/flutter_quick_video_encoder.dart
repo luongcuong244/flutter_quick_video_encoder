@@ -81,11 +81,11 @@ class FlutterQuickVideoEncoder {
 
   /// append raw rgba video frame, 8 bits per channel
   static Future<void> appendVideoFrame(Uint8List rawRgba) async {
-    if (rawRgba.length != width * height * 4) {
-      print(
-          "Invalid data length: Expected ${width * height * 4}, but got ${rawRgba.length}");
-      return; // Hoặc xử lý cách khác tùy yêu cầu
-    }
+    // if (rawRgba.length != width * height * 4) {
+    //   print(
+    //       "Invalid data length: Expected ${width * height * 4}, but got ${rawRgba.length}");
+    //   return; // Hoặc xử lý cách khác tùy yêu cầu
+    // }
     return await _invokeMethod('appendVideoFrame', {
       'rawRgba': rawRgba,
     });
