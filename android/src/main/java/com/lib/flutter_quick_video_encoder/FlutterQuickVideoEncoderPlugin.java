@@ -7,7 +7,7 @@ import android.media.MediaCodecList;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
 import android.util.Log;
-
+import android.os.Build;
 import java.nio.ByteBuffer;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -24,7 +24,10 @@ import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 
 class InputData {
-    enum DataType { VIDEO, AUDIO, STOP }
+    enum DataType {
+        VIDEO, AUDIO, STOP
+    }
+
     public DataType type;
     public byte[] data;
 
@@ -45,9 +48,8 @@ class EncodedData {
 }
 
 public class FlutterQuickVideoEncoderPlugin implements
-    FlutterPlugin,
-    MethodChannel.MethodCallHandler
-{
+        FlutterPlugin,
+        MethodChannel.MethodCallHandler {
     private static final String TAG = "[FQVE-Android]";
     private static final String CHANNEL_NAME = "flutter_quick_video_encoder/methods";
 
@@ -90,15 +92,13 @@ public class FlutterQuickVideoEncoderPlugin implements
 
     @Override
     public void onMethodCall(MethodCall call, MethodChannel.Result result) {
-        try{
+        try {
             switch (call.method) {
-                case "setLogLevel":
-                {
+                case "setLogLevel": {
                     result.success(null);
                     break;
                 }
-                case "setup":
-                {
+                case "setup": {
                     // Clear queues
                     inputQueue.clear();
                     videoQueue.clear();
@@ -108,14 +108,14 @@ public class FlutterQuickVideoEncoderPlugin implements
                     stopProcessingThread();
 
                     // Extract parameters
-                    int width =         call.argument("width");
-                    int height =        call.argument("height");
-                    int fps =           call.argument("fps");
-                    int videoBitrate =  call.argument("videoBitrate");
+                    int width = call.argument("width");
+                    int height = call.argument("height");
+                    int fps = call.argument("fps");
+                    int videoBitrate = call.argument("videoBitrate");
                     int audioChannels = call.argument("audioChannels");
-                    int audioBitrate =  call.argument("audioBitrate");
-                    int sampleRate =    call.argument("sampleRate");
-                    String filepath =   call.argument("filepath");
+                    int audioBitrate = call.argument("audioBitrate");
+                    int sampleRate = call.argument("sampleRate");
+                    String filepath = call.argument("filepath");
 
                     // save
                     mFps = fps;
@@ -135,14 +135,13 @@ public class FlutterQuickVideoEncoderPlugin implements
 
                     // setup video?
                     if (width != 0 && height != 0) {
-
-                        // color format
+                        // Color format
                         int colorFormat = getColorFormat();
-                        if (isColorFormatSupported("video/avc", colorFormat) == false) {
+                        if (!isColorFormatSupported("video/avc", colorFormat)) {
                             result.error("UnsupportedColorFormat", "COLOR_FormatYUV420Flexible is not supported", null);
                             return;
                         }
-                            
+
                         // Video format
                         Log.i(TAG, "calling MediaFormat.createVideoFormat()");
                         MediaFormat videoFormat = MediaFormat.createVideoFormat("video/avc", width, height);
@@ -150,20 +149,22 @@ public class FlutterQuickVideoEncoderPlugin implements
                         videoFormat.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
                         videoFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, colorFormat);
                         videoFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
-                        //videoFormat.setInteger(MediaFormat.KEY_LATENCY, 1);
 
-                        
-                        // Video encoder
-                        mVideoEncoder = MediaCodec.createEncoderByType("video/avc");
-                        Log.i(TAG, "calling mVideoEncoder.configure()");
-                        mVideoEncoder.configure(videoFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-
-                        // start
                         try {
+                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) { // Dưới Android 10
+                                mVideoEncoder = MediaCodec.createByCodecName("OMX.google.h264.encoder");
+                            } else { // Android 10 trở lên
+                                mVideoEncoder = MediaCodec.createEncoderByType("video/avc");
+                            }
+
+                            Log.i(TAG, "calling mVideoEncoder.configure()");
+                            mVideoEncoder.configure(videoFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+
+                            // Start
                             Log.i(TAG, "calling mVideoEncoder.start()");
                             mVideoEncoder.start();
                         } catch (Exception e) {
-                            result.error("Hardware", "Could not start video encoder. Check logs.", null);
+                            result.error("Hardware", "Could not initialize or start video encoder. Check logs.", null);
                             return;
                         }
                     }
@@ -180,7 +181,8 @@ public class FlutterQuickVideoEncoderPlugin implements
 
                         // Audio format
                         Log.i(TAG, "calling MediaFormat.createAudioFormat()");
-                        MediaFormat audioFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, sampleRate, audioChannels);
+                        MediaFormat audioFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC,
+                                sampleRate, audioChannels);
                         audioFormat.setInteger(MediaFormat.KEY_BIT_RATE, audioBitrate);
                         audioFormat.setInteger(MediaFormat.KEY_AAC_PROFILE, audioProfile);
 
@@ -207,32 +209,36 @@ public class FlutterQuickVideoEncoderPlugin implements
 
                     break;
                 }
-                case "appendVideoFrame":
-                {
-                    // if processing error, throw exception
+                case "appendVideoFrame": {
                     if (processingResult.isDone()) {
                         processingResult.get();
                     }
 
+                    // Kiểm tra bộ nhớ
+                    if (isMemoryLow()) {
+                        // Xóa tất cả hàng đợi và dừng quy trình
+                        inputQueue.clear();
+                        videoQueue.clear();
+                        audioQueue.clear();
+                        stopProcessingThread();
+                        result.error("MemoryError", "Insufficient memory, process stopped.", null);
+                        return;
+                    }
+
                     byte[] rawRgba = call.argument("rawRgba");
 
-                    // Convert RGBA to YUV420
-                    // Perf: we get better results doing this here on the Platform thread,
-                    // as opposed to doing it in the processing thread.
+                    // Chuyển đổi RGBA sang YUV420
                     byte[] yuv420 = rgbaToYuv420Planar(rawRgba, mWidth, mHeight);
 
-                    // Create InputData
+                    // Tạo InputData và đưa vào hàng đợi inputQueue
                     InputData inputData = new InputData(InputData.DataType.VIDEO, yuv420);
-
-                    // Put InputData into inputQueue (blocks if full)
                     inputQueue.put(inputData);
 
-                    // Return immediately
                     result.success(null);
                     break;
                 }
-                case "appendAudioFrame":
-                {
+
+                case "appendAudioFrame": {
                     // if processing error, throw exception
                     if (processingResult.isDone()) {
                         processingResult.get();
@@ -250,20 +256,28 @@ public class FlutterQuickVideoEncoderPlugin implements
                     result.success(null);
                     break;
                 }
-                case "finish":
-                {
-                    // if processing error, throw exception
-                    if (processingResult.isDone()) {
-                        processingResult.get();
-                    }
-
-                    // Send STOP signal
-                    inputQueue.put(new InputData(InputData.DataType.STOP, null));
-
-                    // Wait for processingResult to complete
-                    processingResult.get();
-
+                case "release": {
+                    releaseResources();
                     result.success(null);
+                    break;
+                }
+                case "finish": {
+                    // if processing error, throw exception
+                    try {
+                        if (processingResult.isDone()) {
+                            processingResult.get();
+                        }
+
+                        // Send STOP signal
+                        inputQueue.put(new InputData(InputData.DataType.STOP, null));
+
+                        // Wait for processingResult to complete
+                        processingResult.get();
+
+                        result.success(null);
+                    } catch (Exception e) {
+                        result.success(null);
+                    }
                     break;
                 }
                 default:
@@ -280,10 +294,22 @@ public class FlutterQuickVideoEncoderPlugin implements
         }
     }
 
+    private boolean isMemoryLow() {
+        Runtime runtime = Runtime.getRuntime();
+        long freeMemory = runtime.freeMemory();
+        long totalMemory = runtime.totalMemory();
+        long maxMemory = runtime.maxMemory();
+
+        // Ngưỡng cảnh báo, ví dụ nếu bộ nhớ sử dụng vượt quá 90% maxMemory
+        long threshold = (long) (0.9 * maxMemory);
+
+        return (totalMemory - freeMemory) > threshold;
+    }
+
     private void stopProcessingThread() throws InterruptedException {
         if (processingThread != null && processingThread.isAlive()) {
             inputQueue.put(new InputData(InputData.DataType.STOP, null));
-            processingThread.join(); 
+            processingThread.join();
         }
     }
 
@@ -326,6 +352,9 @@ public class FlutterQuickVideoEncoderPlugin implements
                     mMediaMuxer.release();
                     mMediaMuxer = null;
                 }
+                // videoQueue.clear();
+                // audioQueue.clear();
+                // inputQueue.clear();
 
                 // Complete successfully
                 processingResult.complete(null);
@@ -333,7 +362,7 @@ public class FlutterQuickVideoEncoderPlugin implements
             } catch (Exception e) {
                 Log.e(TAG, "Error in processing thread", e);
                 processingResult.completeExceptionally(e);
-                inputQueue.clear();  // release input threads
+                inputQueue.clear(); // release input threads
             }
         });
         processingThread.start();
@@ -577,8 +606,8 @@ public class FlutterQuickVideoEncoderPlugin implements
     /**
      * Extracts all pending data from the specified encoder & feed it to the muxer.
      *
-     * @param encoder The MediaCodec encoder to drain.
-     * @param trackIndex The muxer track index associated with this encoder.
+     * @param encoder     The MediaCodec encoder to drain.
+     * @param trackIndex  The muxer track index associated with this encoder.
      * @param endOfStream If true, signals end-of-stream to the encoder.
      */
     private void drainEncoder(MediaCodec encoder, boolean endOfStream) {
@@ -592,14 +621,11 @@ public class FlutterQuickVideoEncoderPlugin implements
         while (true) {
             int encoderStatus = encoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_USEC);
 
-            if (encoderStatus == MediaCodec.INFO_TRY_AGAIN_LATER)
-            {
+            if (encoderStatus == MediaCodec.INFO_TRY_AGAIN_LATER) {
                 if (!endOfStream) {
                     break; // Exit the loop if not EOS
                 }
-            } 
-            else if (encoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED)
-            {
+            } else if (encoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                 MediaFormat newFormat = encoder.getOutputFormat();
                 Log.i(TAG, "calling mMediaMuxer.addTrack()");
                 if (encoder == mVideoEncoder) {
@@ -613,14 +639,10 @@ public class FlutterQuickVideoEncoderPlugin implements
                     mMediaMuxer.start();
                     mMuxerStarted = true;
                 }
-            }
-            else if (encoderStatus < 0)
-            {
+            } else if (encoderStatus < 0) {
                 // Ignore unexpected status.
                 Log.e(TAG, "encoderStatus < 0");
-            } 
-            else 
-            {
+            } else {
                 ByteBuffer encodedData = encoder.getOutputBuffer(encoderStatus);
                 if (encodedData == null) {
                     throw new RuntimeException("encoderOutputBuffer " + encoderStatus + " was null");
@@ -651,4 +673,56 @@ public class FlutterQuickVideoEncoderPlugin implements
             }
         }
     }
+
+    public void releaseResources() {
+        try {
+            // Dừng và giải phóng MediaCodec cho video
+            if (mVideoEncoder != null) {
+                try {
+                    mVideoEncoder.stop();
+                } catch (Exception e) {
+                    Log.e(TAG, "Error stopping video encoder", e);
+                }
+                mVideoEncoder.release();
+                mVideoEncoder = null;
+            }
+
+            // Dừng và giải phóng MediaCodec cho audio
+            if (mAudioEncoder != null) {
+                try {
+                    mAudioEncoder.stop();
+                } catch (Exception e) {
+                    Log.e(TAG, "Error stopping audio encoder", e);
+                }
+                mAudioEncoder.release();
+                mAudioEncoder = null;
+            }
+
+            // Dừng và giải phóng MediaMuxer
+            if (mMediaMuxer != null) {
+                try {
+                    if (mMuxerStarted) {
+                        mMediaMuxer.stop();
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error stopping media muxer", e);
+                }
+                mMediaMuxer.release();
+                mMediaMuxer = null;
+            }
+
+            // Xóa các hàng đợi
+            videoQueue.clear();
+            audioQueue.clear();
+            inputQueue.clear();
+
+            // Dừng luồng xử lý
+            stopProcessingThread();
+
+            Log.i(TAG, "All resources have been released successfully.");
+        } catch (Exception e) {
+            Log.e(TAG, "Error releasing resources", e);
+        }
+    }
+
 }
