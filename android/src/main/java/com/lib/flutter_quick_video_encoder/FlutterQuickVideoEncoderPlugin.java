@@ -325,9 +325,10 @@ public class FlutterQuickVideoEncoderPlugin implements
                         break;
                     } else if (inputData.type == InputData.DataType.VIDEO) {
                         long currentTime = System.currentTimeMillis();
-                        long elapsedTime = currentTime - startTime;
+                        // presentationTime là thời gian hiển thị của frame trong video, tính bằng ms
+                        long presentationTime = currentTime - startTime;
                         byte[] yuv420 = inputData.data;
-                        feedVideoEncoder(yuv420, elapsedTime * 1000);
+                        feedVideoEncoder(yuv420, presentationTime * 1000);
                         drainEncoder(mVideoEncoder, false);
                     } else if (inputData.type == InputData.DataType.AUDIO) {
                         byte[] rawPcmArray = inputData.data;
