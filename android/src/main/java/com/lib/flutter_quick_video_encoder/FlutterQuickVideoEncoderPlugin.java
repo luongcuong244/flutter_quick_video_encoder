@@ -30,10 +30,13 @@ class InputData {
 
     public DataType type;
     public byte[] data;
+    // presentationTime là thời gian hiển thị của frame trong video, tính bằng ms
+    public long presentationTimeInMs;
 
-    public InputData(DataType type, byte[] data) {
+    public InputData(DataType type, byte[] data, long presentationTimeInMs) {
         this.type = type;
         this.data = data;
+        this.presentationTimeInMs = presentationTimeInMs;
     }
 }
 
@@ -226,12 +229,13 @@ public class FlutterQuickVideoEncoderPlugin implements
                     }
 
                     byte[] rawRgba = call.argument("rawRgba");
+                    long presentationTimeInMs = call.argument("presentationTimeInMs");
 
                     // Chuyển đổi RGBA sang YUV420
                     byte[] yuv420 = rgbaToYuv420Planar(rawRgba, mWidth, mHeight);
 
                     // Tạo InputData và đưa vào hàng đợi inputQueue
-                    InputData inputData = new InputData(InputData.DataType.VIDEO, yuv420);
+                    InputData inputData = new InputData(InputData.DataType.VIDEO, yuv420, presentationTimeInMs);
                     inputQueue.put(inputData);
 
                     result.success(null);
@@ -247,7 +251,7 @@ public class FlutterQuickVideoEncoderPlugin implements
                     byte[] rawPcmArray = call.argument("rawPcm");
 
                     // Create InputData
-                    InputData inputData = new InputData(InputData.DataType.AUDIO, rawPcmArray);
+                    InputData inputData = new InputData(InputData.DataType.AUDIO, rawPcmArray, 0); // do không dùng audio nên để 0, nếu dùng phải tính toán lại
 
                     // Put InputData into inputQueue (blocks if full)
                     inputQueue.put(inputData);
@@ -269,7 +273,7 @@ public class FlutterQuickVideoEncoderPlugin implements
                         }
 
                         // Send STOP signal
-                        inputQueue.put(new InputData(InputData.DataType.STOP, null));
+                        inputQueue.put(new InputData(InputData.DataType.STOP, null, 0));
 
                         // Wait for processingResult to complete
                         processingResult.get();
@@ -308,7 +312,7 @@ public class FlutterQuickVideoEncoderPlugin implements
 
     private void stopProcessingThread() throws InterruptedException {
         if (processingThread != null && processingThread.isAlive()) {
-            inputQueue.put(new InputData(InputData.DataType.STOP, null));
+            inputQueue.put(new InputData(InputData.DataType.STOP, null, 0));
             processingThread.join();
         }
     }
@@ -317,18 +321,15 @@ public class FlutterQuickVideoEncoderPlugin implements
         processingResult = new CompletableFuture<>();
         processingThread = new Thread(() -> {
             try {
-                long startTime = System.currentTimeMillis();
                 while (true) {
                     InputData inputData = inputQueue.take(); // Blocks if queue is empty
                     if (inputData.type == InputData.DataType.STOP) {
                         // Finish processing
                         break;
                     } else if (inputData.type == InputData.DataType.VIDEO) {
-                        long currentTime = System.currentTimeMillis();
-                        // presentationTime là thời gian hiển thị của frame trong video, tính bằng ms
-                        long presentationTime = currentTime - startTime;
                         byte[] yuv420 = inputData.data;
-                        feedVideoEncoder(yuv420, presentationTime * 1000);
+                        long presentationTimeInMs = inputData.presentationTimeInMs;
+                        feedVideoEncoder(yuv420, presentationTimeInMs * 1000);
                         drainEncoder(mVideoEncoder, false);
                     } else if (inputData.type == InputData.DataType.AUDIO) {
                         byte[] rawPcmArray = inputData.data;

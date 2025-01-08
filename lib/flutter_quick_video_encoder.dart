@@ -79,8 +79,8 @@ class FlutterQuickVideoEncoder {
     });
   }
 
-  /// append raw rgba video frame, 8 bits per channel
-  static Future<void> appendVideoFrame(Uint8List rawRgba) async {
+  /// append raw rgba video frame, 8 bits per channel and presentation time in ms
+  static Future<void> appendVideoFrame(Uint8List rawRgba, int presentationTimeInMs) async {
     // if (rawRgba.length != width * height * 4) {
     //   print(
     //       "Invalid data length: Expected ${width * height * 4}, but got ${rawRgba.length}");
@@ -88,6 +88,7 @@ class FlutterQuickVideoEncoder {
     // }
     return await _invokeMethod('appendVideoFrame', {
       'rawRgba': rawRgba,
+      'presentationTimeInMs': presentationTimeInMs,
     });
   }
 
