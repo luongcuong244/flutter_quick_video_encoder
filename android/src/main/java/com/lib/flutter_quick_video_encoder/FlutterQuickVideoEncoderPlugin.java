@@ -317,14 +317,19 @@ public class FlutterQuickVideoEncoderPlugin implements
         processingResult = new CompletableFuture<>();
         processingThread = new Thread(() -> {
             try {
+                long startTime = System.currentTimeMillis();
                 while (true) {
                     InputData inputData = inputQueue.take(); // Blocks if queue is empty
                     if (inputData.type == InputData.DataType.STOP) {
                         // Finish processing
                         break;
                     } else if (inputData.type == InputData.DataType.VIDEO) {
+                        long currentTime = System.currentTimeMillis();
+                        long elapsedTime = currentTime - startTime;
+                        // long presentationTime = mVideoFrameIdx * 1000000L / mFps + elapsedTime * 1000;
+                        startTime = currentTime;
                         byte[] yuv420 = inputData.data;
-                        feedVideoEncoder(yuv420);
+                        feedVideoEncoder(yuv420, elapsedTime);
                         drainEncoder(mVideoEncoder, false);
                     } else if (inputData.type == InputData.DataType.AUDIO) {
                         byte[] rawPcmArray = inputData.data;
@@ -368,9 +373,9 @@ public class FlutterQuickVideoEncoderPlugin implements
         processingThread.start();
     }
 
-    private void feedVideoEncoder(byte[] yuv420) throws Exception {
+    private void feedVideoEncoder(byte[] yuv420, long presentationTime) throws Exception {
         // Calculate presentation time
-        long presentationTime = mVideoFrameIdx * 1000000L / mFps;
+        // long presentationTime = mVideoFrameIdx * 1000000L / mFps;
 
         // Dequeue input buffer
         int inIdx = mVideoEncoder.dequeueInputBuffer(-1);
