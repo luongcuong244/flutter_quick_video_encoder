@@ -326,10 +326,10 @@ public class FlutterQuickVideoEncoderPlugin implements
                     } else if (inputData.type == InputData.DataType.VIDEO) {
                         long currentTime = System.currentTimeMillis();
                         long elapsedTime = currentTime - startTime;
-                        // long presentationTime = mVideoFrameIdx * 1000000L / mFps + elapsedTime * 1000;
+                        long presentationTime = mVideoFrameIdx * 1000000L / mFps + elapsedTime * 1000;
                         startTime = currentTime;
                         byte[] yuv420 = inputData.data;
-                        feedVideoEncoder(yuv420, elapsedTime);
+                        feedVideoEncoder(yuv420, presentationTime);
                         drainEncoder(mVideoEncoder, false);
                     } else if (inputData.type == InputData.DataType.AUDIO) {
                         byte[] rawPcmArray = inputData.data;
