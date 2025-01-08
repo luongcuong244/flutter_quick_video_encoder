@@ -229,7 +229,7 @@ public class FlutterQuickVideoEncoderPlugin implements
                     }
 
                     byte[] rawRgba = call.argument("rawRgba");
-                    long presentationTimeInMs = call.argument("presentationTimeInMs");
+                    long presentationTimeInMs = (long) call.argument("presentationTimeInMs");
 
                     // Chuyển đổi RGBA sang YUV420
                     byte[] yuv420 = rgbaToYuv420Planar(rawRgba, mWidth, mHeight);
